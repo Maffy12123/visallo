@@ -1,7 +1,6 @@
 package org.visallo.graphCheck.rules;
 
 import org.vertexium.Element;
-import org.vertexium.ExtendedDataRow;
 import org.vertexium.Property;
 import org.visallo.core.model.properties.VisalloProperties;
 import org.visallo.graphCheck.DefaultGraphCheckRule;
@@ -24,10 +23,5 @@ public class HasRequiredMetadataGraphCheckRule extends DefaultGraphCheckRule {
             checkPropertyHasMetadata(ctx, element, property, VisalloProperties.MODIFIED_BY_METADATA.getMetadataKey());
             checkPropertyHasMetadata(ctx, element, property, VisalloProperties.MODIFIED_DATE_METADATA.getMetadataKey());
         }
-    }
-
-    @Override
-    public void visitProperty(GraphCheckContext ctx, Element element, String tableName, ExtendedDataRow row, Property property) {
-        visitProperty(ctx, element, property);
     }
 }

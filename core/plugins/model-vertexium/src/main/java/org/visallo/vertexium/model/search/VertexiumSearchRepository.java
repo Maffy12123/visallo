@@ -11,6 +11,7 @@ import org.visallo.core.exception.VisalloAccessDeniedException;
 import org.visallo.core.exception.VisalloException;
 import org.visallo.core.model.graph.GraphRepository;
 import org.visallo.core.model.graph.GraphUpdateContext;
+import org.visallo.core.model.properties.types.PropertyMetadata;
 import org.visallo.core.model.search.SearchProperties;
 import org.visallo.core.model.search.SearchRepository;
 import org.visallo.core.model.user.AuthorizationRepository;
@@ -26,6 +27,7 @@ import org.visallo.core.util.ClientApiConverter;
 import org.visallo.web.clientapi.model.ClientApiSearch;
 import org.visallo.web.clientapi.model.ClientApiSearchListResponse;
 import org.visallo.web.clientapi.model.Privilege;
+import org.visallo.web.clientapi.model.VisibilityJson;
 
 import java.util.stream.Collectors;
 
@@ -95,21 +97,20 @@ public class VertexiumSearchRepository extends SearchRepository {
         }
 
         try (GraphUpdateContext ctx = graphRepository.beginGraphUpdate(Priority.LOW, user, authorizations)) {
-            Vertex searchVertex = saveSearchVertex(ctx, id, name, url, searchParameters).get();
+            Vertex searchVertex = saveSearchVertex(ctx, id, name, url, searchParameters, user).get();
 
             Vertex userVertex = graph.getVertex(user.getUserId(), authorizations);
             checkNotNull(userVertex, "Could not find user vertex with id " + user.getUserId());
             String edgeId = userVertex.getId() + "_" + SearchProperties.HAS_SAVED_SEARCH + "_" + searchVertex.getId();
-            if (graph.getEdge(edgeId, authorizations) == null) {
-                graph.addEdge(
-                        edgeId,
-                        userVertex.getId(),
-                        searchVertex.getId(),
-                        SearchProperties.HAS_SAVED_SEARCH,
-                        VISIBILITY.getVisibility(),
-                        authorizations
-                );
-            }
+            ctx.getOrCreateEdgeAndUpdate(
+                    edgeId,
+                    userVertex.getId(),
+                    searchVertex.getId(),
+                    SearchProperties.HAS_SAVED_SEARCH,
+                    VISIBILITY.getVisibility(),
+                    elemCtx -> {
+                    }
+            );
 
             return searchVertex.getId();
         } catch (Exception ex) {
@@ -142,22 +143,21 @@ public class VertexiumSearchRepository extends SearchRepository {
         }
 
         try (GraphUpdateContext ctx = graphRepository.beginGraphUpdate(Priority.LOW, user, authorizations)) {
-            Vertex searchVertex = saveSearchVertex(ctx, id, name, url, searchParameters).get();
+            Vertex searchVertex = saveSearchVertex(ctx, id, name, url, searchParameters, user).get();
 
             String edgeId = String.format(
                     "%s_%s_%s",
                     GLOBAL_SAVED_SEARCHES_ROOT_VERTEX_ID, SearchProperties.HAS_SAVED_SEARCH, searchVertex.getId()
             );
-            if (graph.getEdge(edgeId, authorizations) == null) {
-                graph.addEdge(
-                        edgeId,
-                        getGlobalSavedSearchesRootVertex().getId(),
-                        searchVertex.getId(),
-                        SearchProperties.HAS_SAVED_SEARCH,
-                        VISIBILITY.getVisibility(),
-                        authorizations
-                );
-            }
+            ctx.getOrCreateEdgeAndUpdate(
+                    edgeId,
+                    getGlobalSavedSearchesRootVertex().getId(),
+                    searchVertex.getId(),
+                    SearchProperties.HAS_SAVED_SEARCH,
+                    VISIBILITY.getVisibility(),
+                    elemCtx -> {
+                    }
+            );
 
             return searchVertex.getId();
         } catch (Exception ex) {
@@ -170,14 +170,19 @@ public class VertexiumSearchRepository extends SearchRepository {
             String id,
             String name,
             String url,
-            JSONObject searchParameters
+            JSONObject searchParameters,
+            User user
     ) {
         Visibility visibility = VISIBILITY.getVisibility();
         return ctx.getOrCreateVertexAndUpdate(id, visibility, elemCtx -> {
+            PropertyMetadata metadata = new PropertyMetadata(user, new VisibilityJson(), visibility);
+            if (elemCtx.isNewElement()) {
+                elemCtx.updateBuiltInProperties(metadata);
+            }
             elemCtx.setConceptType(SearchProperties.CONCEPT_TYPE_SAVED_SEARCH);
-            SearchProperties.NAME.updateProperty(elemCtx, name != null ? name : "", visibility);
-            SearchProperties.URL.updateProperty(elemCtx, url, visibility);
-            SearchProperties.PARAMETERS.updateProperty(elemCtx, searchParameters, visibility);
+            SearchProperties.NAME.updateProperty(elemCtx, name != null ? name : "", metadata);
+            SearchProperties.URL.updateProperty(elemCtx, url, metadata);
+            SearchProperties.PARAMETERS.updateProperty(elemCtx, searchParameters, metadata);
         });
     }
 

@@ -6,15 +6,20 @@ import org.json.JSONObject;
 import org.vertexium.*;
 import org.vertexium.util.ConvertingIterable;
 import org.visallo.core.exception.VisalloException;
+import org.visallo.core.model.graph.GraphRepository;
+import org.visallo.core.model.graph.GraphUpdateContext;
 import org.visallo.core.model.longRunningProcess.LongRunningProcessProperties;
 import org.visallo.core.model.longRunningProcess.LongRunningProcessRepository;
-import org.visallo.core.model.properties.VisalloProperties;
+import org.visallo.core.model.properties.types.PropertyMetadata;
 import org.visallo.core.model.user.AuthorizationRepository;
 import org.visallo.core.model.user.GraphAuthorizationRepository;
 import org.visallo.core.model.user.UserRepository;
+import org.visallo.core.model.workQueue.Priority;
 import org.visallo.core.model.workQueue.WorkQueueRepository;
+import org.visallo.core.security.VisalloVisibility;
 import org.visallo.core.user.SystemUser;
 import org.visallo.core.user.User;
+import org.visallo.web.clientapi.model.VisibilityJson;
 
 import java.util.List;
 
@@ -24,18 +29,21 @@ import static org.vertexium.util.IterableUtils.toList;
 @Singleton
 public class VertexiumLongRunningProcessRepository extends LongRunningProcessRepository {
     private final WorkQueueRepository workQueueRepository;
+    private final GraphRepository graphRepository;
     private final UserRepository userRepository;
     private final Graph graph;
     private final AuthorizationRepository authorizationRepository;
 
     @Inject
     public VertexiumLongRunningProcessRepository(
+            GraphRepository graphRepository,
             GraphAuthorizationRepository graphAuthorizationRepository,
             UserRepository userRepository,
             WorkQueueRepository workQueueRepository,
             Graph graph,
             AuthorizationRepository authorizationRepository
     ) {
+        this.graphRepository = graphRepository;
         this.userRepository = userRepository;
         this.workQueueRepository = workQueueRepository;
         this.graph = graph;
@@ -57,37 +65,36 @@ public class VertexiumLongRunningProcessRepository extends LongRunningProcessRep
         }
         Visibility visibility = getVisibility();
 
-        VertexBuilder vertexBuilder = this.graph.prepareVertex(visibility);
-        VisalloProperties.CONCEPT_TYPE.setProperty(
-                vertexBuilder,
-                LongRunningProcessProperties.LONG_RUNNING_PROCESS_CONCEPT_IRI,
-                visibility
-        );
-        longRunningProcessQueueItem.put("enqueueTime", System.currentTimeMillis());
-        longRunningProcessQueueItem.put("userId", user.getUserId());
-        LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.setProperty(
-                vertexBuilder,
-                longRunningProcessQueueItem,
-                visibility
-        );
-        Vertex longRunningProcessVertex = vertexBuilder.save(authorizations);
+        String longRunningProcessVertexId;
+        try (GraphUpdateContext ctx = graphRepository.beginGraphUpdate(Priority.LOW, user, authorizations)) {
+            longRunningProcessVertexId = ctx.update(this.graph.prepareVertex(visibility), elemCtx -> {
+                PropertyMetadata metadata = new PropertyMetadata(user, new VisibilityJson(), visibility);
+                elemCtx.updateBuiltInProperties(metadata);
+                elemCtx.setConceptType(LongRunningProcessProperties.LONG_RUNNING_PROCESS_CONCEPT_IRI);
+                longRunningProcessQueueItem.put("enqueueTime", System.currentTimeMillis());
+                longRunningProcessQueueItem.put("userId", user.getUserId());
+                LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.updateProperty(elemCtx, longRunningProcessQueueItem, metadata);
+            }).get().getId();
 
-        if (userVertex != null) {
-            this.graph.addEdge(
-                    userVertex,
-                    longRunningProcessVertex,
-                    LongRunningProcessProperties.LONG_RUNNING_PROCESS_TO_USER_EDGE_IRI,
-                    visibility,
-                    authorizations
-            );
+            if (userVertex != null) {
+                ctx.getOrCreateEdgeAndUpdate(
+                        null,
+                        userVertex.getId(),
+                        longRunningProcessVertexId,
+                        LongRunningProcessProperties.LONG_RUNNING_PROCESS_TO_USER_EDGE_IRI,
+                        visibility,
+                        elemCtx -> {
+                        }
+                );
+            }
+        } catch (Exception ex) {
+            throw new VisalloException("Could not create long running process vertex", ex);
         }
 
-        this.graph.flush();
-
-        longRunningProcessQueueItem.put("id", longRunningProcessVertex.getId());
+        longRunningProcessQueueItem.put("id", longRunningProcessVertexId);
         this.workQueueRepository.pushLongRunningProcessQueue(longRunningProcessQueueItem);
 
-        return longRunningProcessVertex.getId();
+        return longRunningProcessVertexId;
     }
 
     public Authorizations getAuthorizations(User user) {
@@ -119,15 +126,18 @@ public class VertexiumLongRunningProcessRepository extends LongRunningProcessRep
     public void updateVertexWithJson(JSONObject longRunningProcessQueueItem) {
         String longRunningProcessGraphVertexId = longRunningProcessQueueItem.getString("id");
         Authorizations authorizations = getAuthorizations(userRepository.getSystemUser());
-        Vertex vertex = this.graph.getVertex(longRunningProcessGraphVertexId, authorizations);
-        checkNotNull(vertex, "Could not find long running process vertex: " + longRunningProcessGraphVertexId);
-        LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.setProperty(
-                vertex,
-                longRunningProcessQueueItem,
-                getVisibility(),
-                authorizations
-        );
-        this.graph.flush();
+        try (GraphUpdateContext ctx = graphRepository.beginGraphUpdate(Priority.LOW, userRepository.getSystemUser(), authorizations)) {
+            Vertex vertex = this.graph.getVertex(longRunningProcessGraphVertexId, authorizations);
+            checkNotNull(vertex, "Could not find long running process vertex: " + longRunningProcessGraphVertexId);
+            ctx.update(vertex, elemCtx -> {
+                PropertyMetadata metadata = new PropertyMetadata(userRepository.getSystemUser(), new VisibilityJson(), getVisibility());
+                LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.updateProperty(
+                        elemCtx,
+                        longRunningProcessQueueItem,
+                        metadata
+                );
+            });
+        }
     }
 
     @Override
@@ -170,14 +180,17 @@ public class VertexiumLongRunningProcessRepository extends LongRunningProcessRep
         json.put("canceled", true);
         json.put("id", longRunningProcessId);
 
-        VertexBuilder vb = graph.prepareVertex(longRunningProcessId, vertex.getVisibility());
-        LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.setProperty(
-                vb,
-                json,
-                getVisibility()
-        );
-        vb.save(getAuthorizations(user));
-        this.graph.flush();
+        try (GraphUpdateContext ctx = graphRepository.beginGraphUpdate(Priority.LOW, user, authorizations)) {
+            VertexBuilder vb = graph.prepareVertex(longRunningProcessId, vertex.getVisibility());
+            ctx.update(vb, elemCtx -> {
+                PropertyMetadata metadata = new PropertyMetadata(userRepository.getSystemUser(), new VisibilityJson(), getVisibility());
+                LongRunningProcessProperties.QUEUE_ITEM_JSON_PROPERTY.updateProperty(
+                        elemCtx,
+                        json,
+                        metadata
+                );
+            });
+        }
 
         workQueueRepository.broadcastLongRunningProcessChange(json);
     }
@@ -227,6 +240,6 @@ public class VertexiumLongRunningProcessRepository extends LongRunningProcessRep
     }
 
     private Visibility getVisibility() {
-        return new Visibility(VISIBILITY_STRING);
+        return new VisalloVisibility(VISIBILITY_STRING).getVisibility();
     }
 }

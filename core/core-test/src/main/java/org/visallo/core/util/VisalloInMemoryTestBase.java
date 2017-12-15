@@ -591,6 +591,7 @@ public abstract class VisalloInMemoryTestBase {
             return longRunningProcessRepository;
         }
         longRunningProcessRepository = new VertexiumLongRunningProcessRepository(
+                getGraphRepository(),
                 getGraphAuthorizationRepository(),
                 getUserRepository(),
                 getWorkQueueRepository(),

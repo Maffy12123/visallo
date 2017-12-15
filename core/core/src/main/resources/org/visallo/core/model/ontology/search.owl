@@ -92,6 +92,14 @@
     <owl:Class rdf:about="http://visallo.org/search#savedSearch">
         <visallo:userVisible rdf:datatype="http://www.w3.org/2001/XMLSchema#boolean">false</visallo:userVisible>
     </owl:Class>
+
+
+
+    <!-- http://visallo.org/search#globalSavedSearchRoot -->
+
+    <owl:Class rdf:about="http://visallo.org/search#globalSavedSearchRoot">
+        <visallo:userVisible rdf:datatype="http://www.w3.org/2001/XMLSchema#boolean">false</visallo:userVisible>
+    </owl:Class>
 </rdf:RDF>
 
 

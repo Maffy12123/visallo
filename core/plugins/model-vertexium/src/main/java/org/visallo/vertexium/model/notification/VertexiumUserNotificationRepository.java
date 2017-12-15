@@ -15,6 +15,7 @@ import org.visallo.core.model.properties.types.PropertyMetadata;
 import org.visallo.core.model.user.GraphAuthorizationRepository;
 import org.visallo.core.model.workQueue.Priority;
 import org.visallo.core.model.workQueue.WorkQueueRepository;
+import org.visallo.core.security.VisalloVisibility;
 import org.visallo.core.user.User;
 import org.visallo.vertexium.model.user.VertexiumUserRepository;
 import org.visallo.web.clientapi.model.VisibilityJson;
@@ -96,7 +97,7 @@ public class VertexiumUserNotificationRepository extends UserNotificationReposit
             ctx.update(userVertex, elemCtx -> {
                 String row = notification.getId();
                 VisibilityJson visibilityJson = new VisibilityJson();
-                Visibility visibility = new Visibility(VISIBILITY_STRING);
+                Visibility visibility = getVisibility();
                 PropertyMetadata metadata = new PropertyMetadata(authUser, visibilityJson, visibility);
 
                 NotificationOntology.USER_NOTIFICATIONS_TABLE_TITLE.addExtendedData(elemCtx, row, notification.getTitle(), metadata);
@@ -114,6 +115,10 @@ public class VertexiumUserNotificationRepository extends UserNotificationReposit
             });
         }
         workQueueRepository.pushUserNotification(notification);
+    }
+
+    private Visibility getVisibility() {
+        return new VisalloVisibility(VISIBILITY_STRING).getVisibility();
     }
 
     @Override

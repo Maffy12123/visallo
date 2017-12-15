@@ -20,6 +20,7 @@ import org.visallo.core.model.properties.types.PropertyMetadata;
 import org.visallo.core.model.user.GraphAuthorizationRepository;
 import org.visallo.core.model.user.UserRepository;
 import org.visallo.core.model.workQueue.Priority;
+import org.visallo.core.security.VisalloVisibility;
 import org.visallo.core.user.User;
 import org.visallo.web.clientapi.model.VisibilityJson;
 
@@ -99,7 +100,7 @@ public class VertexiumSystemNotificationRepository extends SystemNotificationRep
             ctx.update(getSystemNotificationVertex(ctx), elemCtx -> {
                 String row = notification.getId();
                 VisibilityJson visibilityJson = new VisibilityJson();
-                Visibility visibility = new Visibility(VISIBILITY_STRING);
+                Visibility visibility = getVisibility();
                 PropertyMetadata metadata = new PropertyMetadata(user, visibilityJson, visibility);
                 NotificationOntology.SYSTEM_NOTIFICATIONS_TABLE_TITLE.addExtendedData(elemCtx, row, notification.getTitle(), metadata);
                 if (notification.getActionEvent() != null && notification.getActionPayload() != null) {
@@ -117,10 +118,13 @@ public class VertexiumSystemNotificationRepository extends SystemNotificationRep
         return notification;
     }
 
+    private Visibility getVisibility() {
+        return new VisalloVisibility(VISIBILITY_STRING).getVisibility();
+    }
+
     private Vertex getSystemNotificationVertex(GraphUpdateContext ctx) {
-        Visibility visibility = new Visibility(VISIBILITY_STRING);
         try {
-            return ctx.getOrCreateVertexAndUpdate(SYSTEM_NOTIFICATION_VERTEX_ID, visibility, elemCtx -> {
+            return ctx.getOrCreateVertexAndUpdate(SYSTEM_NOTIFICATION_VERTEX_ID, getVisibility(), elemCtx -> {
                 if (elemCtx.isNewElement()) {
                     elemCtx.setConceptType(OntologyRepository.ENTITY_CONCEPT_IRI);
                     elemCtx.updateBuiltInProperties(new Date(), new VisibilityJson());
