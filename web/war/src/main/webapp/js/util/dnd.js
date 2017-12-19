@@ -1,32 +1,44 @@
 define(['util/vertex/formatters'], function(F) {
 
     const FALLBACK_PREFIX = 'Visallo_ElementIds: ';
-
-    // IE doesn't support setData([mimetype], ...)
-    // if only supports setData('text', ...)
-    const checkIfSupportsMultipleTypes = _.once((fn, dataTransfer) => {
-        try {
-            if (fn === 'set') {
+    let supportsMultipleTypes;
+    // IE doesn't support setData([mimetype], ...), it only supports setData('text', ...)
+    const checkIfSupportsMultipleTypes = (dataTransfer) => {
+        if (supportsMultipleTypes !== undefined) {
+            return supportsMultipleTypes;
+        } else {
+            try {
                 dataTransfer.setData('CHECK_ALLOWS_MANY_TYPES', 'true')
-            } else {
-                dataTransfer.getData('CHECK_ALLOWS_MANY_TYPES')
+                const data = dataTransfer.getData('CHECK_ALLOWS_MANY_TYPES')
+
+                if (data) {
+                    supportsMultipleTypes = true;
+                }
+                return true;
+            } catch(e) {
+                //Firefox throws exception on setData() for a read-only dataTransfer (from a drop event)
+                if (e.name === 'NoModificationAllowedError') {
+                    return true;
+                } else {
+                    supportsMultipleTypes = false;
+                    return false;
+                }
             }
-            return true;
-        } catch(e) {
-            return false;
         }
-    })
+    }
 
     return {
         dataTransferHasValidMimeType(dataTransfer, mimeTypes = []) {
-            if (checkIfSupportsMultipleTypes('get', dataTransfer)) {
+            if (checkIfSupportsMultipleTypes(dataTransfer)) {
                 return _.any(dataTransfer.types, type => mimeTypes.includes(type));
+            } else {
+                const text = dataTransfer.getData('Text');
+                return text && text.startsWith(FALLBACK_PREFIX) && mimeTypes.includes(VISALLO_MIMETYPES.ELEMENTS);
             }
-            return true;
         },
         setDataTransferWithElements(dataTransfer, { vertexIds, edgeIds, elements = [] }) {
             const typeToData = segmentToTypes(vertexIds, edgeIds, elements);
-            if (checkIfSupportsMultipleTypes('set', dataTransfer)) {
+            if (checkIfSupportsMultipleTypes(dataTransfer)) {
                 _.each(typeToData, (data, type) => {
                     if (data) {
                         dataTransfer.setData(type, data);
@@ -44,11 +56,11 @@ define(['util/vertex/formatters'], function(F) {
         },
         getElementsFromDataTransfer(dataTransfer) {
             var dataStr;
-            if (checkIfSupportsMultipleTypes('get', dataTransfer)) {
+            if (checkIfSupportsMultipleTypes(dataTransfer)) {
                 dataStr = dataTransfer.getData(VISALLO_MIMETYPES.ELEMENTS);
             } else {
                 const text = dataTransfer.getData('Text');
-                if (text.indexOf(FALLBACK_PREFIX) === 0) {
+                if (text && text.indexOf(FALLBACK_PREFIX) === 0) {
                     dataStr = text.substring(FALLBACK_PREFIX.length);
                 }
             }
