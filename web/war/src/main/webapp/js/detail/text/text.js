@@ -916,14 +916,16 @@ define([
                         concept = type && self.concepts.byId[type];
 
                     if (concept) {
-                        this.classList.forEach(className => {
-                            if (className.indexOf('conceptId-') === 0 && className !== concept.className) {
-                                this.classList.remove(className);
-                            }
+                        const classes = this.className.split(' ').filter(className => {
+                            return !(className.indexOf('conceptId-') === 0 && className !== concept.className)
                         });
-                        if (!this.classList.contains(concept.className)) {
-                            this.classList.add(concept.className);
+
+                        if (!(concept.className in classes)) {
+                            classes.push(concept.className);
+                            this.className = classes.join(' ');
                             self.loadSelectorForConcept(concept);
+                        } else {
+                            this.className = classes.join(' ');
                         }
                     }
                 })
